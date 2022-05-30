@@ -1,0 +1,5 @@
+*.bin
+/pytorch_version/prev_trained_model
+pytorch_version/prev_trained_model/
+/pytorch_version/outputs
+pytorch_version/outputs/
