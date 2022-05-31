@@ -3,3 +3,4 @@
 pytorch_version/prev_trained_model/
 /pytorch_version/outputs
 pytorch_version/outputs/
+cached_crf-train_chinese-roberta-wwm-ext_128_duiener

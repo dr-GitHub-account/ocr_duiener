@@ -36,9 +36,12 @@ def train(args, train_dataset, model, tokenizer):
     """ Train the model """
     # 计算批量大小
     args.train_batch_size = args.per_gpu_train_batch_size * max(1, args.n_gpu)
-    # 默认args.local_rank == -1，采样器为RandomSampler
+    # 默认args.local_rank == -1，采样器为RandomSampler，随机采样
     train_sampler = RandomSampler(train_dataset) if args.local_rank == -1 else DistributedSampler(train_dataset)
     # 可迭代对象
+    # ----------重要----------
+    # 输入的字首先以id的形式存于train_dataloader，在具体训练中被分到每个batch，然后被放入字典inputs里，
+    # inputs被输入模型后，在BERT的embeddings层被由id转化为向量
     train_dataloader = DataLoader(train_dataset, sampler=train_sampler, batch_size=args.train_batch_size,
                                   collate_fn=collate_fn)
     # args.max_steps默认为-1
@@ -69,6 +72,8 @@ def train(args, train_dataset, model, tokenizer):
     bert_param_optimizer = list(model.bert.named_parameters())
     crf_param_optimizer = list(model.crf.named_parameters())
     linear_param_optimizer = list(model.classifier.named_parameters())
+    # 需更新的参数，分三大组，分别是bert_param_optimizer, crf_param_optimizer, linear_param_optimizer
+    # 每一大组中，有两个字典，第一个存放需要weight decay的，第二个存放不需要weight decay的
     optimizer_grouped_parameters = [
         {'params': [p for n, p in bert_param_optimizer if not any(nd in n for nd in no_decay)],
          'weight_decay': args.weight_decay, 'lr': args.learning_rate},
@@ -88,7 +93,7 @@ def train(args, train_dataset, model, tokenizer):
     args.warmup_steps = int(t_total * args.warmup_proportion)
     # 优化器
     optimizer = AdamW(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
-    # 学习率调度
+    # 学习率调度，get_linear_schedule_with_warmup()表示先warmup再线性下降
     scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=args.warmup_steps,
                                                 num_training_steps=t_total)
     # Check if saved optimizer or scheduler states exist
@@ -109,7 +114,7 @@ def train(args, train_dataset, model, tokenizer):
             raise ImportError("Please install apex from https://www.github.com/nvidia/apex to use fp16 training.")
         model, optimizer = amp.initialize(model, optimizer, opt_level=args.fp16_opt_level)
     # multi-gpu training (should be after apex fp16 initialization)
-    # 3090上n_gpu为2
+    # 多gpu则进入下面的if，单gpu则不进入下面的if
     if args.n_gpu > 1:
         model = torch.nn.DataParallel(model)
     # Distributed training (should be after apex fp16 initialization)
@@ -135,9 +140,10 @@ def train(args, train_dataset, model, tokenizer):
     global_step = 0
     steps_trained_in_current_epoch = 0
     # Check if continuing training from a checkpoint
+    # 默认不进入下面的if
     if os.path.exists(args.model_name_or_path) and "checkpoint" in args.model_name_or_path:
         # print("**********************\"checkpoint\" detected in args.model_name_or_path")
-        # # 没有打印
+        # # 没有打印，即没有进入这个if
         # set global_step to gobal_step of last saved checkpoint from model path
         global_step = int(args.model_name_or_path.split("-")[-1].split("/")[0])
         epochs_trained = global_step // (len(train_dataloader) // args.gradient_accumulation_steps)
@@ -164,6 +170,7 @@ def train(args, train_dataset, model, tokenizer):
             model.train()
             batch = tuple(t.to(args.device) for t in batch)
             inputs = {"input_ids": batch[0], "attention_mask": batch[1], "labels": batch[3], 'input_lens': batch[4]}
+            # 默认进入下面的if
             if args.model_type != "distilbert":
                 # XLM and RoBERTa don"t use segment_ids
                 inputs["token_type_ids"] = (batch[2] if args.model_type in ["bert", "xlnet"] else None)
@@ -178,7 +185,7 @@ def train(args, train_dataset, model, tokenizer):
             #     # np.shape(outputs): (2,)
             #     # 两张卡，两个loss
             #     # np.shape(outputs[0]): torch.Size([2])
-            #     # 第一个维度48代表batch size，第二个维度52代表句子最大长度，第三个维度34代表分类数
+            #     # 第一个维度48代表batch size，第二个维度52代表句子最大长度，第三个维度34代表cluener分类数
             #     # np.shape(outputs[1]): torch.Size([48, 52, 34])
             # 计算并处理loss
             loss = outputs[0]  # model outputs are always tuple in pytorch-transformers (see doc)
@@ -187,9 +194,11 @@ def train(args, train_dataset, model, tokenizer):
             if args.gradient_accumulation_steps > 1:
                 loss = loss / args.gradient_accumulation_steps
             # 反向传播
+            # 默认args.fp16为False，不进入下面的if
             if args.fp16:
                 with amp.scale_loss(loss, optimizer) as scaled_loss:
                     scaled_loss.backward()
+            # 默认进入下面的else，反向传播
             else:
                 loss.backward()
             # 进度条
@@ -197,8 +206,10 @@ def train(args, train_dataset, model, tokenizer):
             tr_loss += loss.item()
             # 判断是否到了需要更新的步骤
             if (step + 1) % args.gradient_accumulation_steps == 0:
+                # 默认不进入下面的if
                 if args.fp16:
                     torch.nn.utils.clip_grad_norm_(amp.master_params(optimizer), args.max_grad_norm)
+                # 默认进入下面的else，梯度裁剪
                 else:
                     torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
                 # Update learning rate schedule
@@ -208,7 +219,8 @@ def train(args, train_dataset, model, tokenizer):
                 # 梯度置为0
                 model.zero_grad()
                 global_step += 1
-                # 默认设置下，每轮batch数为224，args.logging_steps为448，所以一般两轮验证一次
+                # 训练过程中的验证
+                # cluener默认设置下，每轮batch数为224，args.logging_steps为448，所以一般两轮验证一次
                 if args.local_rank in [-1, 0] and args.logging_steps > 0 and global_step % args.logging_steps == 0:
                     # Log metrics
                     print(" ")
@@ -216,7 +228,8 @@ def train(args, train_dataset, model, tokenizer):
                     if args.local_rank == -1:
                         # Only evaluate when single GPU otherwise metrics may not average well
                         evaluate(args, model, tokenizer)
-                # 默认设置下，每轮batch数为224，args.save_steps为448，所以一般两轮存一次权重到以步数结尾的文件夹里
+                # 训练过程中的权重存储
+                # cluener默认设置下，每轮batch数为224，args.save_steps为448，所以一般两轮存一次权重到以步数结尾的文件夹里
                 if args.local_rank in [-1, 0] and args.save_steps > 0 and global_step % args.save_steps == 0:
                     # Save model checkpoint
                     output_dir = os.path.join(args.output_dir, "checkpoint-{}".format(global_step))
@@ -382,6 +395,7 @@ def predict(args, model, tokenizer, prefix=""):
 def load_and_cache_examples(args, task, tokenizer, data_type='train'):
     if args.local_rank not in [-1, 0] and not evaluate:
         torch.distributed.barrier()  # Make sure only the first process in distributed training process the dataset, and the others will use the cache
+    # 实例化DuienerProcessor类对象processor
     processor = processors[task]()
     # Load data features from cache or dataset file
     cached_features_file = os.path.join(args.data_dir, 'cached_crf-{}_{}_{}_{}'.format(
@@ -389,35 +403,51 @@ def load_and_cache_examples(args, task, tokenizer, data_type='train'):
         list(filter(None, args.model_name_or_path.split('/'))).pop(),
         str(args.train_max_seq_length if data_type == 'train' else args.eval_max_seq_length),
         str(task)))
+    # 如果缓存的特征文件存在，则进入下面的if，加载它并记录到日志
     if os.path.exists(cached_features_file) and not args.overwrite_cache:
         logger.info("Loading features from cached file %s", cached_features_file)
         features = torch.load(cached_features_file)
+    # 如果缓存的特征文件不存在，则进入下面的else
     else:
         logger.info("Creating features from dataset file at %s", args.data_dir)
+        # get_labels()返回所有标签组成的列表，赋值给label_list
         label_list = processor.get_labels()
+        # 将训练/验证/测试集的数据以列表的形式存入examples
         if data_type == 'train':
             examples = processor.get_train_examples(args.data_dir)
         elif data_type == 'dev':
             examples = processor.get_dev_examples(args.data_dir)
         else:
             examples = processor.get_test_examples(args.data_dir)
+        # def convert_examples_to_features(examples,label_list,max_seq_length,tokenizer,
+        #                                  cls_token_at_end=False,cls_token="[CLS]",cls_token_segment_id=1,
+        #                                  sep_token="[SEP]",pad_on_left=False,pad_token=0,pad_token_segment_id=0,
+        #                                  sequence_a_segment_id=0,mask_padding_with_zero=True,)
+        #     Loads a data file into a list of `InputBatch`s
+        #     `cls_token_at_end` define the location of the CLS token:
+        #         - False (Default, BERT/XLM pattern): [CLS] + A + [SEP] + B + [SEP]
+        #         - True (XLNet/GPT pattern): A + [SEP] + B + [SEP] + [CLS]
+        #     `cls_token_segment_id` define the segment id associated to the CLS token (0 for BERT, 2 for XLNet)
         features = convert_examples_to_features(examples=examples,
                                                 tokenizer=tokenizer,
                                                 label_list=label_list,
                                                 max_seq_length=args.train_max_seq_length if data_type == 'train' \
                                                     else args.eval_max_seq_length,
-                                                cls_token_at_end=bool(args.model_type in ["xlnet"]),
-                                                pad_on_left=bool(args.model_type in ['xlnet']),
-                                                cls_token=tokenizer.cls_token,
-                                                cls_token_segment_id=2 if args.model_type in ["xlnet"] else 0,
-                                                sep_token=tokenizer.sep_token,
+                                                cls_token_at_end=bool(args.model_type in ["xlnet"]), # 默认False
+                                                pad_on_left=bool(args.model_type in ['xlnet']), # 默认False
+                                                cls_token=tokenizer.cls_token, # "[CLS]"，在class BertTokenizer里赋值
+                                                cls_token_segment_id=2 if args.model_type in ["xlnet"] else 0, # 默认0
+                                                sep_token=tokenizer.sep_token, # "[SEP]"，在class BertTokenizer里赋值
                                                 # pad on the left for xlnet
                                                 pad_token=tokenizer.convert_tokens_to_ids([tokenizer.pad_token])[0],
                                                 pad_token_segment_id=4 if args.model_type in ['xlnet'] else 0,
                                                 )
+        # logger.info("********************args.local_rank: {}********************".format(args.local_rank))
+        # 默认进入下面的if，缓存特征文件并记录到日志
         if args.local_rank in [-1, 0]:
             logger.info("Saving features into cached file %s", cached_features_file)
             torch.save(features, cached_features_file)
+    # 默认不进入下面的if
     if args.local_rank == 0 and not evaluate:
         torch.distributed.barrier()  # Make sure only the first process in distributed training process the dataset, and the others will use the cache
     # Convert to Tensors and build dataset
@@ -426,6 +456,11 @@ def load_and_cache_examples(args, task, tokenizer, data_type='train'):
     all_segment_ids = torch.tensor([f.segment_ids for f in features], dtype=torch.long)
     all_label_ids = torch.tensor([f.label_ids for f in features], dtype=torch.long)
     all_lens = torch.tensor([f.input_len for f in features], dtype=torch.long)
+    logger.info("**********shape(all_input_ids): {}, the first 2 are {}**********".format(np.shape(all_input_ids), all_input_ids[:2]))
+    logger.info("**********shape(all_input_mask): {}, the first is {}**********".format(np.shape(all_input_mask), all_input_mask[0]))
+    logger.info("**********shape(all_segment_ids): {}, the first is {}**********".format(np.shape(all_segment_ids), all_segment_ids[0]))
+    logger.info("**********shape(all_label_ids): {}, the first is {}**********".format(np.shape(all_label_ids), all_label_ids[0]))
+    logger.info("**********shape(all_lens): {}, the first is {}**********".format(np.shape(all_lens), all_lens[0]))
     dataset = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_lens, all_label_ids)
     return dataset
 
@@ -552,6 +587,7 @@ def main():
     # def from_pretrained(cls, pretrained_model_name_or_path, *model_args, **kwargs)
     model = model_class.from_pretrained(args.model_name_or_path, from_tf=bool(".ckpt" in args.model_name_or_path),
                                         config=config, cache_dir=args.cache_dir if args.cache_dir else None)
+    
     # 默认情况，args.local_rank: -1，不进入这个if
     if args.local_rank == 0:
         torch.distributed.barrier()  # Make sure only the first process in distributed training will download model & vocab
@@ -562,12 +598,22 @@ def main():
     logger.info("Training/evaluation parameters %s", args)
     
     # Training
+    # 默认进入下面的if，进行训练
     if args.do_train:
         # 得到训练数据集，load_and_cache_examples函数返回TensorDataset类对象
+        # 该对象的实例化：TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_lens, all_label_ids)
+        # 其中
+        # shape(all_input_ids): torch.Size([104110, 128])
+        # shape(all_input_mask): torch.Size([104110, 128])
+        # shape(all_segment_ids): torch.Size([104110, 128])
+        # shape(all_label_ids): torch.Size([104110, 128])
+        # shape(all_lens): torch.Size([104110])
         train_dataset = load_and_cache_examples(args, args.task_name, tokenizer, data_type='train')
+        # 进行训练，包括训练前对数据的分批与embedding
         global_step, tr_loss = train(args, train_dataset, model, tokenizer)
         logger.info(" global_step = %s, average loss = %s", global_step, tr_loss)
     # Saving best-practices: if you use defaults names for the model, you can reload it using from_pretrained()
+    # 默认进入下面的if，存权重
     if args.do_train and (args.local_rank == -1 or torch.distributed.get_rank() == 0):
         # Create output directory if needed
         if not os.path.exists(args.output_dir) and args.local_rank in [-1, 0]:
@@ -578,8 +624,13 @@ def main():
         model_to_save = (
             model.module if hasattr(model, "module") else model
         )  # Take care of distributed/parallel training
+        # 下面这一步存下model的config和model
+        # .../pytorch_version/models/transformers/configuration_utils.py里定义的save_pretrained()存下config.json并在日志记录
+        # .../pytorch_version/models/transformers/modeling_utils.py里定义的save_pretrained()存下pytorch_model.bin并在日志记录
         model_to_save.save_pretrained(args.output_dir)
+        # 存vocab.txt
         tokenizer.save_vocabulary(args.output_dir)
+        # 存args
         # Good practice: save your training arguments together with the trained model
         torch.save(args, os.path.join(args.output_dir, "training_args.bin"))
         
