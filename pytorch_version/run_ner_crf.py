@@ -254,12 +254,18 @@ def train(args, train_dataset, model, tokenizer):
 def evaluate(args, model, tokenizer, prefix=""):
     metric = SeqEntityScore(args.id2label, markup=args.markup)
     eval_output_dir = args.output_dir
+    # eval_output_dir路径存在，默认不进入下面的if
     if not os.path.exists(eval_output_dir) and args.local_rank in [-1, 0]:
         os.makedirs(eval_output_dir)
     eval_dataset = load_and_cache_examples(args, args.task_name, tokenizer, data_type='dev')
     args.eval_batch_size = args.per_gpu_eval_batch_size * max(1, args.n_gpu)
     # Note that DistributedSampler samples randomly
+    # 默认args.local_rank == -1，采样器为RandomSampler，随机采样
     eval_sampler = SequentialSampler(eval_dataset) if args.local_rank == -1 else DistributedSampler(eval_dataset)
+    # 可迭代对象
+    # ----------重要----------
+    # 输入的字首先以id的形式存于eval_dataloader，在具体验证中被分到每个batch，然后被放入字典inputs里，
+    # inputs被输入模型后，在BERT的embeddings层被由id转化为向量
     eval_dataloader = DataLoader(eval_dataset, sampler=eval_sampler, batch_size=args.eval_batch_size,
                                  collate_fn=collate_fn)
     # Eval!
@@ -275,41 +281,115 @@ def evaluate(args, model, tokenizer, prefix=""):
         model.eval()
         batch = tuple(t.to(args.device) for t in batch)
         with torch.no_grad():
+            # 一个批量的输入，以字典的形式存储，包含键'input_ids', 'attention_mask', 'labels', 'input_lens', 'token_type_ids'
             inputs = {"input_ids": batch[0], "attention_mask": batch[1], "labels": batch[3], 'input_lens': batch[4]}
             if args.model_type != "distilbert":
                 # XLM and RoBERTa don"t use segment_ids
                 inputs["token_type_ids"] = (batch[2] if args.model_type in ["bert", "xlnet"] else None)
+            # 得到一个批量的输出
+            # 元组，第一个元素是该step的loss，赋值给tmp_eval_loss
+            # 第二个元素是logits(维度是(batch_size, max_input_len_in_current_batch, num_classes), 是最终的全连接层输出)列表，列表中每个元素都代表当前batch某个样本句子的输出结果，赋值给logits
             outputs = model(**inputs)
             tmp_eval_loss, logits = outputs[:2]
+            # 对logits进行解码得到的当前批量的每一句的输出预测标签列表，维度(batch_size, max_input_len_in_current_batch)
+            # 在解码过程中需要同时考虑到attention_mask，从而将pad的tokens的tags置为0，当前batch中只有最长序列各tokens的tags都不为0
             tags = model.crf.decode(logits, inputs['attention_mask'])
+        # 单卡不用管，多卡loss平均
         if args.n_gpu > 1:
             tmp_eval_loss = tmp_eval_loss.mean()  # mean() to average on multi-gpu parallel evaluating
+        # 对各个step的loss进行累计
         eval_loss += tmp_eval_loss.item()
+        # 总的步数，其实就是(step + 1) 
         nb_eval_steps += 1
+        # 从input中取真实标签信息，维度是(batch_size, max_input_len_in_current_batch)
         out_label_ids = inputs['labels'].cpu().numpy().tolist()
+        # 输入句子长度，维度是(batch_size,)
         input_lens = inputs['input_lens'].cpu().numpy().tolist()
+        # 输出预测标签放到cpu上，维度(batch_size, max_input_len_in_current_batch)
         tags = tags.squeeze(0).cpu().numpy().tolist()
+        # 遍历当前batch中所有句子的真实标签列表，label是某一句的真实标签对应列表
         for i, label in enumerate(out_label_ids):
+            # temp_1列表存放当前句子中所有字的真实标签(id2label后的结果)
             temp_1 = []
+            # temp_2列表存放当前句子中所有字的预测标签(id2label后的结果)
             temp_2 = []
+            # 遍历当前这一句的所有字
             for j, m in enumerate(label):
+                # 第一个字，什么都不做
                 if j == 0:
                     continue
+                # 最后一个字，更新SeqEntityScore对象metric，退出循环
+                # temp_1列表存放当前batch中所有字的真实标签，temp_2列表存放当前batch中所有字的预测标签
+                # 更新metric时，拿label_paths里的真实标签(来自temp_1)去扩展(extend)self.origins列表
+                # 更新metric时，拿pred_paths里的预测标签(来自temp_2)去扩展(extend)self.founds列表
+                # extend()函数用于在列表末尾一次性追加另一个序列中的多个值(用新列表扩展原来的列表)
                 elif j == input_lens[i] - 1:
+                    # def update(self, label_paths, pred_paths):
+                    #     '''
+                    #     labels_paths: [[],[],[],....]
+                    #     pred_paths: [[],[],[],.....]
+
+                    #     :param label_paths:
+                    #     :param pred_paths:
+                    #     :return:
+                    #     Example:
+                    #         >>> labels_paths = [['O', 'O', 'O', 'B-MISC', 'I-MISC', 'I-MISC', 'O'], ['B-PER', 'I-PER', 'O']]
+                    #         >>> pred_paths = [['O', 'O', 'B-MISC', 'I-MISC', 'I-MISC', 'I-MISC', 'O'], ['B-PER', 'I-PER', 'O']]
+                    #     '''
                     metric.update(pred_paths=[temp_2], label_paths=[temp_1])
                     break
+                # 既不是第一个字，也不是最后一个字的时候，就用当前字的真实标签和预测标签分别
                 else:
                     temp_1.append(args.id2label[out_label_ids[i][j]])
                     temp_2.append(args.id2label[tags[i][j]])
+        if step == 2:
+            logger.info("************in step 2:************")
+            logger.info("inputs: {}, '\n', {}".format(inputs, np.shape(inputs)))
+            logger.info("outputs: {}, '\n', {}".format(outputs, np.shape(outputs)))
+            logger.info("tmp_eval_loss: {}, '\n', {}".format(tmp_eval_loss, np.shape(tmp_eval_loss)))
+            logger.info("logits: {}, '\n', {}".format(logits, np.shape(logits)))
+            logger.info("tags: {}, '\n', {}".format(tags, np.shape(tags)))
+            logger.info("eval_loss: {}, '\n', {}".format(eval_loss, np.shape(eval_loss)))
+            logger.info("nb_eval_steps: {}, '\n', {}".format(nb_eval_steps, np.shape(nb_eval_steps)))
+            logger.info("out_label_ids: {}, '\n', {}".format(out_label_ids, np.shape(out_label_ids)))
+            logger.info("input_lens: {}, '\n', {}".format(input_lens, np.shape(input_lens)))
+            logger.info("tags after squeezing: {}, '\n', {}".format(tags, np.shape(tags)))
+            logger.info("temp_1: {}, '\n', {}".format(temp_1, np.shape(temp_1)))
+            logger.info("temp_2: {}, '\n', {}".format(temp_2, np.shape(temp_2)))
+        if step == 3:
+            logger.info("************in step 3:************")
+            logger.info("inputs: {}, '\n', {}".format(inputs, np.shape(inputs)))
+            logger.info("outputs: {}, '\n', {}".format(outputs, np.shape(outputs)))
+            logger.info("tmp_eval_loss: {}, '\n', {}".format(tmp_eval_loss, np.shape(tmp_eval_loss)))
+            logger.info("logits: {}, '\n', {}".format(logits, np.shape(logits)))
+            logger.info("tags: {}, '\n', {}".format(tags, np.shape(tags)))
+            logger.info("eval_loss: {}, '\n', {}".format(eval_loss, np.shape(eval_loss)))
+            logger.info("nb_eval_steps: {}, '\n', {}".format(nb_eval_steps, np.shape(nb_eval_steps)))
+            logger.info("out_label_ids: {}, '\n', {}".format(out_label_ids, np.shape(out_label_ids)))
+            logger.info("input_lens: {}, '\n', {}".format(input_lens, np.shape(input_lens)))
+            logger.info("tags after squeezing: {}, '\n', {}".format(tags, np.shape(tags)))
+            logger.info("temp_1: {}, '\n', {}".format(temp_1, np.shape(temp_1)))
+            logger.info("temp_2: {}, '\n', {}".format(temp_2, np.shape(temp_2)))
         pbar(step)
     logger.info("\n")
+    
+    # 至此，遍历完了所有的batch，即验证集所有句子包含的所有字的真实标签存入了metric的origins列表，验证集所有句子包含的所有字的预测标签存入了metric的founds列表
+    
+    # 所有步累计的loss除以总的步数，得到平均的loss
     eval_loss = eval_loss / nb_eval_steps
+    # metric.result()返回{'acc': precision, 'recall': recall, 'f1': f1}, class_info，注意这里acc实际用的是precision
+    # 其中，class_info[type_] = {"acc": round(precision, 4), 'recall': round(recall, 4), 'f1': round(f1, 4)}
+    # 即总的precision, recall, f1存入eval_info，各类的precision, recall, f1存入entity_info
     eval_info, entity_info = metric.result()
+    # 将总的precision, recall, f1存入results字典
     results = {f'{key}': value for key, value in eval_info.items()}
+    # 将平均的loss存入results字典
     results['loss'] = eval_loss
+    # 根据results输出总的precision, recall, f1, loss并记入日志
     logger.info("***** Eval results %s *****", prefix)
     info = "-".join([f' {key}: {value:.4f} ' for key, value in results.items()])
     logger.info(info)
+    # 根据entity_info输出每个类的precision, recall, f1并记入日志
     logger.info("***** Entity results %s *****", prefix)
     for key in sorted(entity_info.keys()):
         logger.info("******* %s results ********" % key)
@@ -456,11 +536,11 @@ def load_and_cache_examples(args, task, tokenizer, data_type='train'):
     all_segment_ids = torch.tensor([f.segment_ids for f in features], dtype=torch.long)
     all_label_ids = torch.tensor([f.label_ids for f in features], dtype=torch.long)
     all_lens = torch.tensor([f.input_len for f in features], dtype=torch.long)
-    logger.info("**********shape(all_input_ids): {}, the first 2 are {}**********".format(np.shape(all_input_ids), all_input_ids[:2]))
-    logger.info("**********shape(all_input_mask): {}, the first is {}**********".format(np.shape(all_input_mask), all_input_mask[0]))
-    logger.info("**********shape(all_segment_ids): {}, the first is {}**********".format(np.shape(all_segment_ids), all_segment_ids[0]))
-    logger.info("**********shape(all_label_ids): {}, the first is {}**********".format(np.shape(all_label_ids), all_label_ids[0]))
-    logger.info("**********shape(all_lens): {}, the first is {}**********".format(np.shape(all_lens), all_lens[0]))
+    # logger.info("**********shape(all_input_ids): {}, the first 2 are {}**********".format(np.shape(all_input_ids), all_input_ids[:2]))
+    # logger.info("**********shape(all_input_mask): {}, the first is {}**********".format(np.shape(all_input_mask), all_input_mask[0]))
+    # logger.info("**********shape(all_segment_ids): {}, the first is {}**********".format(np.shape(all_segment_ids), all_segment_ids[0]))
+    # logger.info("**********shape(all_label_ids): {}, the first is {}**********".format(np.shape(all_label_ids), all_label_ids[0]))
+    # logger.info("**********shape(all_lens): {}, the first is {}**********".format(np.shape(all_lens), all_lens[0]))
     dataset = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_lens, all_label_ids)
     return dataset
 

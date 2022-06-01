@@ -57,7 +57,7 @@ CUDA_VISIBLE_DEVICES=1 python run_ner_crf.py \
   --save_steps=200000 \
   --output_dir=$OUTPUT_DIR/${TASK_NAME}_output/${output_time}_${repeat} \
   --overwrite_output_dir \
-  --seed=42 
+  --seed=42
 done
 
 # **************************1-gpu train**************************
