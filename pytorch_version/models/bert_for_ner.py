@@ -55,9 +55,15 @@ class BertCrfForNer(BertPreTrainedModel):
         self.init_weights()
 
     def forward(self, input_ids, token_type_ids=None, attention_mask=None,labels=None,input_lens=None):
+        # self.bert的输出outputs = (sequence_output, pooled_output,) + encoder_outputs[1:]
+        # sequence_output是当前batch所有句子所有token对应的BERT输出向量，维度为torch.Size([batch_size, max_input_len_in_current_batch, hidden_size])
+        # pooled_output是当前batch所有句子第一个token对应的BERT输出向量，维度为torch.Size([batch_size, hidden_size])
+        # encoder_outputs[1:]默认是空的
         outputs =self.bert(input_ids = input_ids,attention_mask=attention_mask,token_type_ids=token_type_ids)
         sequence_output = outputs[0]
+        # 对维度为torch.Size([batch_size, max_input_len_in_current_batch, hidden_size])的sequence_output进行dropout处理
         sequence_output = self.dropout(sequence_output)
+        # 分类输出logits
         logits = self.classifier(sequence_output)
         outputs = (logits,)
         if labels is not None:

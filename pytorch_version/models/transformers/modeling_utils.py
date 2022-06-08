@@ -435,6 +435,7 @@ class PreTrainedModel(nn.Module):
                 state_dict._metadata = metadata
 
             # **********************大致作用就是将state_dict中的权重加载进模型***********************
+            # 关键就在module._load_from_state_dict()
             def load(module, prefix=''):
                 local_metadata = {} if metadata is None else metadata.get(prefix[:-1], {})
                 module._load_from_state_dict(

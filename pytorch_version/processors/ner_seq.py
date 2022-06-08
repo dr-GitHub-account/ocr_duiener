@@ -258,6 +258,14 @@ class DuienerProcessor(DataProcessor):
                 "S-City", "S-Person", "S-Number", 'S-School', 'S-Country', 'S-Song', 'S-Text', 'S-Date', 'S-Language', 'S-Enterprise', "S-Location", 'S-Climate', 'S-Album', 'S-Award',
                 'S-Movie', 'S-Book', 'S-HistoricalPerson', 'S-Institute', 'S-AdministrativeDistrict', 'S-Literature', 'S-Variety', 'S-EntertainmentPerson', 'S-Sight', 'S-EnterpriseOrBrand', 'S-Subject',
                 'O', "[START]", "[END]"]
+    
+    # def get_labels(self):
+    #     """See base class."""
+    #     return ["X", "B-City", "B-Person", "B-Number", 'B-School', 'B-Country', 'B-Song', 'B-Text', 'B-Date', 'B-Language', 'B-Enterprise', "B-Location", 'B-Climate', 'B-Album', 'B-Award',
+    #             'B-Movie', 'B-Book', 'B-HistoricalPerson', 'B-Institute', 'B-AdministrativeDistrict', 'B-Literature', 'B-Variety', 'B-EntertainmentPerson', 'B-Sight', 'B-EnterpriseOrBrand', 'B-Subject',
+    #             "I-City", "I-Person", "I-Number", 'I-School', 'I-Country', 'I-Song', 'I-Text', 'I-Date', 'I-Language', 'I-Enterprise', "I-Location", 'I-Climate', 'I-Album', 'I-Award',
+    #             'I-Movie', 'I-Book', 'I-HistoricalPerson', 'I-Institute', 'I-AdministrativeDistrict', 'I-Literature', 'I-Variety', 'I-EntertainmentPerson', 'I-Sight', 'I-EnterpriseOrBrand', 'I-Subject',
+    #             'O', "[START]", "[END]"]
 
     def _create_examples(self, lines, set_type):
         """Creates examples for the training and dev sets."""

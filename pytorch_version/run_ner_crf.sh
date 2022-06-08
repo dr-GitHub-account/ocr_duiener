@@ -1,5 +1,7 @@
 CURRENT_DIR=`pwd`
-export BERT_BASE_DIR=$CURRENT_DIR/prev_trained_model/chinese-roberta-wwm-ext
+# export BERT_BASE_DIR=$CURRENT_DIR/prev_trained_model/chinese-roberta-wwm-ext
+export BERT_BASE_DIR=$CURRENT_DIR/prev_trained_model/chinese-roberta-wwm-ext-large
+# export BERT_BASE_DIR=$CURRENT_DIR/prev_trained_model/chinese-pert-base
 # export BERT_BASE_DIR=$CURRENT_DIR/prev_trained_model/bert-base-chinese
 # export GLUE_DIR=$CURRENT_DIR/CLUEdatasets
 export GLUE_DIR=$CURRENT_DIR/datasets
@@ -37,9 +39,32 @@ output_time=${time}
 
 # **************************1-gpu train**************************
 
-for repeat in roberta1;
+# for repeat in roberta_large1;
+# do
+# CUDA_VISIBLE_DEVICES=1 python run_ner_crf.py \
+#   --model_type=bert \
+#   --model_name_or_path=$BERT_BASE_DIR \
+#   --task_name=$TASK_NAME \
+#   --do_train \
+#   --do_eval \
+#   --do_lower_case \
+#   --data_dir=$GLUE_DIR/${TASK_NAME}/ \
+#   --train_max_seq_length=128 \
+#   --eval_max_seq_length=512 \
+#   --per_gpu_train_batch_size=48 \
+#   --per_gpu_eval_batch_size=48 \
+#   --learning_rate=1e-5 \
+#   --num_train_epochs=12.0 \
+#   --logging_steps=2169 \
+#   --save_steps=2000000 \
+#   --output_dir=$OUTPUT_DIR/${TASK_NAME}_output/${output_time}_${repeat} \
+#   --overwrite_output_dir \
+#   --seed=42
+# done
+
+for repeat in roberta_large1;
 do
-CUDA_VISIBLE_DEVICES=1 python run_ner_crf.py \
+CUDA_VISIBLE_DEVICES=0 python run_ner_crf.py \
   --model_type=bert \
   --model_name_or_path=$BERT_BASE_DIR \
   --task_name=$TASK_NAME \
@@ -49,12 +74,12 @@ CUDA_VISIBLE_DEVICES=1 python run_ner_crf.py \
   --data_dir=$GLUE_DIR/${TASK_NAME}/ \
   --train_max_seq_length=128 \
   --eval_max_seq_length=512 \
-  --per_gpu_train_batch_size=48 \
-  --per_gpu_eval_batch_size=48 \
+  --per_gpu_train_batch_size=12 \
+  --per_gpu_eval_batch_size=12 \
   --learning_rate=1e-5 \
-  --num_train_epochs=8.0 \
-  --logging_steps=2169 \
-  --save_steps=200000 \
+  --num_train_epochs=12.0 \
+  --logging_steps=8676 \
+  --save_steps=2000000 \
   --output_dir=$OUTPUT_DIR/${TASK_NAME}_output/${output_time}_${repeat} \
   --overwrite_output_dir \
   --seed=42

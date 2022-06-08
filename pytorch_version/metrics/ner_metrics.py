@@ -29,12 +29,12 @@ class SeqEntityScore(object):
         origin_counter = Counter([x[0] for x in self.origins])
         found_counter = Counter([x[0] for x in self.founds])
         right_counter = Counter([x[0] for x in self.rights])
-        logger.info("**********origin_counter: {}**********".format(origin_counter))
-        logger.info("**********found_counter: {}**********".format(found_counter))
-        logger.info("**********right_counter: {}**********".format(right_counter))
-        # 06/01/2022 21:19:33 - INFO - root -   **********origin_counter: Counter({'Person': 9872, 'Book': 2408, 'Movie': 1971, 'Institute': 1595, 'Date': 1456, 'Song': 1115, 'Enterprise': 1085, 'School': 998, 'Country': 835, 'Text': 801, 'HistoricalPerson': 468, 'EntertainmentPerson': 456, 'Variety': 370, 'Number': 356, 'Location': 282, 'Award': 185, 'AdministrativeDistrict': 182, 'City': 114, 'Literature': 113, 'Album': 108, 'Climate': 99, 'Sight': 76, 'EnterpriseOrBrand': 64, 'Language': 9, 'Subject': 3})**********
-        # 06/01/2022 21:19:33 - INFO - root -   **********found_counter: Counter({'Person': 9226, 'Book': 2301, 'Movie': 2047, 'Date': 1564, 'Institute': 1447, 'School': 1039, 'Song': 1035, 'Enterprise': 871, 'Country': 776, 'Text': 637, 'EntertainmentPerson': 429, 'HistoricalPerson': 409, 'Number': 376, 'Variety': 295, 'AdministrativeDistrict': 223, 'Location': 170, 'Award': 110, 'Climate': 97, 'Literature': 73, 'EnterpriseOrBrand': 45, 'City': 38, 'Album': 36, 'Sight': 21})**********
-        # 06/01/2022 21:19:33 - INFO - root -   **********right_counter: Counter({'Person': 8183, 'Book': 2080, 'Movie': 1585, 'Date': 1327, 'Institute': 1166, 'Song': 851, 'School': 849, 'Country': 699, 'Enterprise': 693, 'Text': 509, 'HistoricalPerson': 306, 'Number': 287, 'EntertainmentPerson': 283, 'Variety': 220, 'AdministrativeDistrict': 140, 'Location': 131, 'Climate': 78, 'Award': 55, 'Literature': 34, 'City': 34, 'EnterpriseOrBrand': 31, 'Album': 29, 'Sight': 14})**********
+        # logger.info("**********origin_counter: {}**********".format(origin_counter))
+        # logger.info("**********found_counter: {}**********".format(found_counter))
+        # logger.info("**********right_counter: {}**********".format(right_counter))
+        # # 06/01/2022 21:19:33 - INFO - root -   **********origin_counter: Counter({'Person': 9872, 'Book': 2408, 'Movie': 1971, 'Institute': 1595, 'Date': 1456, 'Song': 1115, 'Enterprise': 1085, 'School': 998, 'Country': 835, 'Text': 801, 'HistoricalPerson': 468, 'EntertainmentPerson': 456, 'Variety': 370, 'Number': 356, 'Location': 282, 'Award': 185, 'AdministrativeDistrict': 182, 'City': 114, 'Literature': 113, 'Album': 108, 'Climate': 99, 'Sight': 76, 'EnterpriseOrBrand': 64, 'Language': 9, 'Subject': 3})**********
+        # # 06/01/2022 21:19:33 - INFO - root -   **********found_counter: Counter({'Person': 9226, 'Book': 2301, 'Movie': 2047, 'Date': 1564, 'Institute': 1447, 'School': 1039, 'Song': 1035, 'Enterprise': 871, 'Country': 776, 'Text': 637, 'EntertainmentPerson': 429, 'HistoricalPerson': 409, 'Number': 376, 'Variety': 295, 'AdministrativeDistrict': 223, 'Location': 170, 'Award': 110, 'Climate': 97, 'Literature': 73, 'EnterpriseOrBrand': 45, 'City': 38, 'Album': 36, 'Sight': 21})**********
+        # # 06/01/2022 21:19:33 - INFO - root -   **********right_counter: Counter({'Person': 8183, 'Book': 2080, 'Movie': 1585, 'Date': 1327, 'Institute': 1166, 'Song': 851, 'School': 849, 'Country': 699, 'Enterprise': 693, 'Text': 509, 'HistoricalPerson': 306, 'Number': 287, 'EntertainmentPerson': 283, 'Variety': 220, 'AdministrativeDistrict': 140, 'Location': 131, 'Climate': 78, 'Award': 55, 'Literature': 34, 'City': 34, 'EnterpriseOrBrand': 31, 'Album': 29, 'Sight': 14})**********
         # 计算每个类的recall, precision, f1，存入class_info
         for type_, count in origin_counter.items():
             origin = count
@@ -45,12 +45,12 @@ class SeqEntityScore(object):
         origin = len(self.origins)
         found = len(self.founds)
         right = len(self.rights)
-        logger.info("**********origin: {}**********".format(origin))
-        logger.info("**********found: {}**********".format(found))
-        logger.info("**********right: {}**********".format(right))
-        # 06/01/2022 21:19:33 - INFO - root -   **********origin: 25021**********
-        # 06/01/2022 21:19:33 - INFO - root -   **********found: 23265**********
-        # 06/01/2022 21:19:33 - INFO - root -   **********right: 19584**********
+        # logger.info("**********origin: {}**********".format(origin))
+        # logger.info("**********found: {}**********".format(found))
+        # logger.info("**********right: {}**********".format(right))
+        # # 06/01/2022 21:19:33 - INFO - root -   **********origin: 25021**********
+        # # 06/01/2022 21:19:33 - INFO - root -   **********found: 23265**********
+        # # 06/01/2022 21:19:33 - INFO - root -   **********right: 19584**********
         # 计算总的recall, precision, f1(micro f1)
         recall, precision, f1 = self.compute(origin, found, right)
         return {'acc': precision, 'recall': recall, 'f1': f1}, class_info

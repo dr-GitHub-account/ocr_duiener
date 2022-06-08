@@ -98,6 +98,7 @@ def train(args, train_dataset, model, tokenizer):
                                                 num_training_steps=t_total)
     # Check if saved optimizer or scheduler states exist
     # 默认情况下不存在
+    # 默认不进入下面的if
     if os.path.isfile(os.path.join(args.model_name_or_path, "optimizer.pt")) and os.path.isfile(
             os.path.join(args.model_name_or_path, "scheduler.pt")):
         # Load in optimizer and scheduler states
@@ -107,6 +108,7 @@ def train(args, train_dataset, model, tokenizer):
     # 默认False
     # print("******************args.fp16********************", args.fp16)
     # # ******************args.fp16******************** False
+    # 默认不进入下面的if
     if args.fp16:
         try:
             from apex import amp
@@ -118,7 +120,7 @@ def train(args, train_dataset, model, tokenizer):
     if args.n_gpu > 1:
         model = torch.nn.DataParallel(model)
     # Distributed training (should be after apex fp16 initialization)
-    # 默认local_rank = -1
+    # 默认local_rank = -1，不进入下面的if
     if args.local_rank != -1:
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.local_rank],
                                                           output_device=args.local_rank,
@@ -174,6 +176,47 @@ def train(args, train_dataset, model, tokenizer):
             if args.model_type != "distilbert":
                 # XLM and RoBERTa don"t use segment_ids
                 inputs["token_type_ids"] = (batch[2] if args.model_type in ["bert", "xlnet"] else None)
+            # if step == 0:
+            #     logger.info("inputs[\"input_ids\"]: {} \n {}".format(inputs["input_ids"], np.shape(inputs["input_ids"])))
+            #     logger.info("inputs[\"attention_mask\"]: {} \n {}".format(inputs["attention_mask"], np.shape(inputs["attention_mask"])))
+            #     logger.info("inputs[\"labels\"]: {} \n {}".format(inputs["labels"], np.shape(inputs["labels"])))
+            #     logger.info("inputs[\"input_lens\"]: {} \n {}".format(inputs["input_lens"], np.shape(inputs["input_lens"])))
+            #     logger.info("inputs[\"token_type_ids\"]: {} \n {}".format(inputs["token_type_ids"], np.shape(inputs["token_type_ids"])))
+            # inputs["input_ids"]: tensor([[ 101, 6387,  815,  ...,    0,    0,    0],
+            #         [ 101,  517, 1476,  ...,    0,    0,    0],
+            #         [ 101, 6760, 5632,  ..., 5341, 1394,  102],
+            #         ...,
+            #         [ 101, 3330, 2768,  ...,    0,    0,    0],
+            #         [ 101,  108, 7506,  ...,  704, 1744,  102],
+            #         [ 101,  677, 3862,  ...,    0,    0,    0]], device='cuda:0') 
+            #  torch.Size([12, 128])
+            # inputs["attention_mask"]: tensor([[1, 1, 1,  ..., 0, 0, 0],
+            #         [1, 1, 1,  ..., 0, 0, 0],
+            #         [1, 1, 1,  ..., 1, 1, 1],
+            #         ...,
+            #         [1, 1, 1,  ..., 0, 0, 0],
+            #         [1, 1, 1,  ..., 1, 1, 1],
+            #         [1, 1, 1,  ..., 0, 0, 0]], device='cuda:0') 
+            #  torch.Size([12, 128])
+            # inputs["labels"]: tensor([[76,  2, 27,  ...,  0,  0,  0],
+            #         [76, 76, 16,  ...,  0,  0,  0],
+            #         [76, 76, 76,  ..., 76, 76, 76],
+            #         ...,
+            #         [76, 17, 42,  ...,  0,  0,  0],
+            #         [76, 76, 76,  ..., 76, 76, 76],
+            #         [76, 18, 43,  ...,  0,  0,  0]], device='cuda:0') 
+            #  torch.Size([12, 128])
+            # inputs["input_lens"]: tensor([ 37,  38, 128, 118,  55,  52,  32, 128,  35,  26, 128,  40],
+            #        device='cuda:0') 
+            #  torch.Size([12])
+            # inputs["token_type_ids"]: tensor([[0, 0, 0,  ..., 0, 0, 0],
+            #         [0, 0, 0,  ..., 0, 0, 0],
+            #         [0, 0, 0,  ..., 0, 0, 0],
+            #         ...,
+            #         [0, 0, 0,  ..., 0, 0, 0],
+            #         [0, 0, 0,  ..., 0, 0, 0],
+            #         [0, 0, 0,  ..., 0, 0, 0]], device='cuda:0') 
+            #  torch.Size([12, 128])
             outputs = model(**inputs)
             # if step == 1:
             #     print("type(outputs):", type(outputs))
@@ -212,10 +255,10 @@ def train(args, train_dataset, model, tokenizer):
                 # 默认进入下面的else，梯度裁剪
                 else:
                     torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
-                # Update learning rate schedule
-                scheduler.step()  
                 # 更新参数
-                optimizer.step()
+                optimizer.step()                
+                # Update learning rate schedule
+                scheduler.step()
                 # 梯度置为0
                 model.zero_grad()
                 global_step += 1
@@ -342,34 +385,34 @@ def evaluate(args, model, tokenizer, prefix=""):
                 else:
                     temp_1.append(args.id2label[out_label_ids[i][j]])
                     temp_2.append(args.id2label[tags[i][j]])
-        if step == 2:
-            logger.info("************in step 2:************")
-            logger.info("inputs: {}, '\n', {}".format(inputs, np.shape(inputs)))
-            logger.info("outputs: {}, '\n', {}".format(outputs, np.shape(outputs)))
-            logger.info("tmp_eval_loss: {}, '\n', {}".format(tmp_eval_loss, np.shape(tmp_eval_loss)))
-            logger.info("logits: {}, '\n', {}".format(logits, np.shape(logits)))
-            logger.info("tags: {}, '\n', {}".format(tags, np.shape(tags)))
-            logger.info("eval_loss: {}, '\n', {}".format(eval_loss, np.shape(eval_loss)))
-            logger.info("nb_eval_steps: {}, '\n', {}".format(nb_eval_steps, np.shape(nb_eval_steps)))
-            logger.info("out_label_ids: {}, '\n', {}".format(out_label_ids, np.shape(out_label_ids)))
-            logger.info("input_lens: {}, '\n', {}".format(input_lens, np.shape(input_lens)))
-            logger.info("tags after squeezing: {}, '\n', {}".format(tags, np.shape(tags)))
-            logger.info("temp_1: {}, '\n', {}".format(temp_1, np.shape(temp_1)))
-            logger.info("temp_2: {}, '\n', {}".format(temp_2, np.shape(temp_2)))
-        if step == 3:
-            logger.info("************in step 3:************")
-            logger.info("inputs: {}, '\n', {}".format(inputs, np.shape(inputs)))
-            logger.info("outputs: {}, '\n', {}".format(outputs, np.shape(outputs)))
-            logger.info("tmp_eval_loss: {}, '\n', {}".format(tmp_eval_loss, np.shape(tmp_eval_loss)))
-            logger.info("logits: {}, '\n', {}".format(logits, np.shape(logits)))
-            logger.info("tags: {}, '\n', {}".format(tags, np.shape(tags)))
-            logger.info("eval_loss: {}, '\n', {}".format(eval_loss, np.shape(eval_loss)))
-            logger.info("nb_eval_steps: {}, '\n', {}".format(nb_eval_steps, np.shape(nb_eval_steps)))
-            logger.info("out_label_ids: {}, '\n', {}".format(out_label_ids, np.shape(out_label_ids)))
-            logger.info("input_lens: {}, '\n', {}".format(input_lens, np.shape(input_lens)))
-            logger.info("tags after squeezing: {}, '\n', {}".format(tags, np.shape(tags)))
-            logger.info("temp_1: {}, '\n', {}".format(temp_1, np.shape(temp_1)))
-            logger.info("temp_2: {}, '\n', {}".format(temp_2, np.shape(temp_2)))
+        # if step == 2:
+        #     logger.info("************in step 2:************")
+        #     logger.info("inputs: {}, '\n', {}".format(inputs, np.shape(inputs)))
+        #     logger.info("outputs: {}, '\n', {}".format(outputs, np.shape(outputs)))
+        #     logger.info("tmp_eval_loss: {}, '\n', {}".format(tmp_eval_loss, np.shape(tmp_eval_loss)))
+        #     logger.info("logits: {}, '\n', {}".format(logits, np.shape(logits)))
+        #     logger.info("tags: {}, '\n', {}".format(tags, np.shape(tags)))
+        #     logger.info("eval_loss: {}, '\n', {}".format(eval_loss, np.shape(eval_loss)))
+        #     logger.info("nb_eval_steps: {}, '\n', {}".format(nb_eval_steps, np.shape(nb_eval_steps)))
+        #     logger.info("out_label_ids: {}, '\n', {}".format(out_label_ids, np.shape(out_label_ids)))
+        #     logger.info("input_lens: {}, '\n', {}".format(input_lens, np.shape(input_lens)))
+        #     logger.info("tags after squeezing: {}, '\n', {}".format(tags, np.shape(tags)))
+        #     logger.info("temp_1: {}, '\n', {}".format(temp_1, np.shape(temp_1)))
+        #     logger.info("temp_2: {}, '\n', {}".format(temp_2, np.shape(temp_2)))
+        # if step == 3:
+        #     logger.info("************in step 3:************")
+        #     logger.info("inputs: {}, '\n', {}".format(inputs, np.shape(inputs)))
+        #     logger.info("outputs: {}, '\n', {}".format(outputs, np.shape(outputs)))
+        #     logger.info("tmp_eval_loss: {}, '\n', {}".format(tmp_eval_loss, np.shape(tmp_eval_loss)))
+        #     logger.info("logits: {}, '\n', {}".format(logits, np.shape(logits)))
+        #     logger.info("tags: {}, '\n', {}".format(tags, np.shape(tags)))
+        #     logger.info("eval_loss: {}, '\n', {}".format(eval_loss, np.shape(eval_loss)))
+        #     logger.info("nb_eval_steps: {}, '\n', {}".format(nb_eval_steps, np.shape(nb_eval_steps)))
+        #     logger.info("out_label_ids: {}, '\n', {}".format(out_label_ids, np.shape(out_label_ids)))
+        #     logger.info("input_lens: {}, '\n', {}".format(input_lens, np.shape(input_lens)))
+        #     logger.info("tags after squeezing: {}, '\n', {}".format(tags, np.shape(tags)))
+        #     logger.info("temp_1: {}, '\n', {}".format(temp_1, np.shape(temp_1)))
+        #     logger.info("temp_2: {}, '\n', {}".format(temp_2, np.shape(temp_2)))
         pbar(step)
     logger.info("\n")
     

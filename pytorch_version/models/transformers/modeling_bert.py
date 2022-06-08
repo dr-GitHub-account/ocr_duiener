@@ -24,6 +24,8 @@ import os
 import sys
 from io import open
 
+import numpy as np
+
 import torch
 from torch import nn
 from torch.nn import CrossEntropyLoss, MSELoss
@@ -142,32 +144,56 @@ ACT2FN = {"gelu": gelu, "relu": torch.nn.functional.relu, "swish": swish, "gelu_
 
 BertLayerNorm = torch.nn.LayerNorm
 
+# 调用：embedding_output = self.embeddings(input_ids, position_ids=position_ids, token_type_ids=token_type_ids)
 class BertEmbeddings(nn.Module):
     """Construct the embeddings from word, position and token_type embeddings.
     """
     def __init__(self, config):
         super(BertEmbeddings, self).__init__()
+        # nn.Embedding是一个lookup table，存储了固定大小的dictionary(的word embeddings)。输入是indices，来获取指定indices的word embedding向量
+        # self.word_embeddings.weight.size为torch.Size([config.vocab_size, config.hidden_size])
         self.word_embeddings = nn.Embedding(config.vocab_size, config.hidden_size, padding_idx=0)
+        # self.position_embeddings.weight.size为torch.Size([config.max_position_embeddings, config.hidden_size])
         self.position_embeddings = nn.Embedding(config.max_position_embeddings, config.hidden_size)
+        # self.token_type_embeddings.weight.size为torch.Size([config.type_vocab_size, config.hidden_size])
         self.token_type_embeddings = nn.Embedding(config.type_vocab_size, config.hidden_size)
 
         # self.LayerNorm is not snake-cased to stick with TensorFlow model variable name and be able to load
         # any TensorFlow checkpoint file
         self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
+        
+        # ***********************customize***********************
+        # self.flag = 0
+        # ***********************customize***********************
 
     def forward(self, input_ids, token_type_ids=None, position_ids=None):
         seq_length = input_ids.size(1)
+        # batch_size为12的情况下，position_ids维度torch.Size([12, 128])，每行都是[  0,   1,   2,  ..., 125, 126, 127]
         if position_ids is None:
             position_ids = torch.arange(seq_length, dtype=torch.long, device=input_ids.device)
             position_ids = position_ids.unsqueeze(0).expand_as(input_ids)
+        # batch_size为12的情况下，token_type_ids维度torch.Size([12, 128])，全是0
         if token_type_ids is None:
             token_type_ids = torch.zeros_like(input_ids)
 
+        # batch_size为12的情况下，下面三个编码输入的维度都是torch.Size([12, 128])，其中每一个元素都代表一个indice
+        # batch_size为12的情况下，下面三个编码输出的维度都是torch.Size([12, 128, 1024])，也就是对每一个输入的indice，相应有一个1024维的embedding
         words_embeddings = self.word_embeddings(input_ids)
         position_embeddings = self.position_embeddings(position_ids)
         token_type_embeddings = self.token_type_embeddings(token_type_ids)
+        
+        # ***********************customize***********************
+        # if self.flag == 0:
+        #     logger.info("position_ids: {} \n {}".format(position_ids, np.shape(position_ids)))
+        #     logger.info("token_type_ids: {} \n {}".format(token_type_ids, np.shape(token_type_ids)))
+        #     logger.info("words_embeddings: {} \n {}".format(words_embeddings, np.shape(words_embeddings)))
+        #     logger.info("position_embeddings: {} \n {}".format(position_embeddings, np.shape(position_embeddings)))
+        #     logger.info("token_type_embeddings: {} \n {}".format(token_type_embeddings, np.shape(token_type_embeddings)))
+        #     self.flag = 1
+        # ***********************customize***********************
 
+        # 维度相同的三个embedding相加，得到最终的embedding
         embeddings = words_embeddings + position_embeddings + token_type_embeddings
         embeddings = self.LayerNorm(embeddings)
         embeddings = self.dropout(embeddings)
@@ -334,32 +360,58 @@ class BertLayer(nn.Module):
 class BertEncoder(nn.Module):
     def __init__(self, config):
         super(BertEncoder, self).__init__()
+        # 默认为None
         self.output_attentions = config.output_attentions
+        # 默认为None
         self.output_hidden_states = config.output_hidden_states
+        # self.layer由config.num_hidden_layers层BertLayer组成
         self.layer = nn.ModuleList([BertLayer(config) for _ in range(config.num_hidden_layers)])
+        self.flag = 0
 
     def forward(self, hidden_states, attention_mask=None, head_mask=None):
         all_hidden_states = ()
         all_attentions = ()
+        # 遍历所有BertLayer
         for i, layer_module in enumerate(self.layer):
+            # 默认不进入下面的if
             if self.output_hidden_states:
+                logger.info("*********OMG, entering unexpected if*********")
                 all_hidden_states = all_hidden_states + (hidden_states,)
 
+            # 将当前的hidden_states输入到接下来的一层BertLayer，得到输出layer_outputs
+            # head_mask[i]默认为None
             layer_outputs = layer_module(hidden_states, attention_mask, head_mask[i])
             hidden_states = layer_outputs[0]
 
+            # 默认不进入下面的if
             if self.output_attentions:
+                logger.info("*********OMG, entering unexpected if*********")
                 all_attentions = all_attentions + (layer_outputs[1],)
 
         # Add last layer
+        # 默认不进入下面的if
         if self.output_hidden_states:
+            logger.info("*********OMG, entering unexpected if*********")
             all_hidden_states = all_hidden_states + (hidden_states,)
 
+        # if self.flag == 0:
+        #     logger.info("**********hidden_states: {} **********\n **********{}**********".format(hidden_states, np.shape(hidden_states)))
+        #     self.flag = 1
+        
+        # hidden_states维度是torch.Size([12, 128, 1024])
+        # outputs就是把hidden_states包进了一个元组
         outputs = (hidden_states,)
+        # 默认不进入下面的if
         if self.output_hidden_states:
+            logger.info("*********OMG, entering unexpected if*********")
             outputs = outputs + (all_hidden_states,)
+        # 默认不进入下面的if
         if self.output_attentions:
+            logger.info("*********OMG, entering unexpected if*********")
             outputs = outputs + (all_attentions,)
+        # if self.flag == 1:
+        #     logger.info("**********outputs: {} **********".format(outputs))
+        #     self.flag = 2
         return outputs  # last-layer hidden state, (all hidden states), (all attentions)
 
 
@@ -531,6 +583,7 @@ BERT_INPUTS_DOCSTRING = r"""
             ``1`` indicates the head is **not masked**, ``0`` indicates the head is **masked**.
 """
 
+# self.bert(input_ids = input_ids,attention_mask=attention_mask,token_type_ids=token_type_ids)
 @add_start_docstrings("The bare Bert Model transformer outputting raw hidden-states without any specific head on top.",
                       BERT_START_DOCSTRING, BERT_INPUTS_DOCSTRING)
 class BertModel(BertPreTrainedModel):
@@ -570,6 +623,7 @@ class BertModel(BertPreTrainedModel):
         self.pooler = BertPooler(config)
 
         self.init_weights()
+        self.flag = 0
 
     def _resize_token_embeddings(self, new_num_tokens):
         old_embeddings = self.embeddings.word_embeddings
@@ -585,9 +639,13 @@ class BertModel(BertPreTrainedModel):
         for layer, heads in heads_to_prune.items():
             self.encoder.layer[layer].attention.prune_heads(heads)
 
+    # 调用时，input_ids, attention_mask, token_type_ids都不为None，position_ids=None, head_mask=None
+    # head_mask用于将某些层的某些注意力计算无效化
     def forward(self, input_ids, attention_mask=None, token_type_ids=None, position_ids=None, head_mask=None):
+        # 默认不进入下面的if
         if attention_mask is None:
             attention_mask = torch.ones_like(input_ids)
+        # 默认不进入下面的if
         if token_type_ids is None:
             token_type_ids = torch.zeros_like(input_ids)
 
@@ -609,6 +667,7 @@ class BertModel(BertPreTrainedModel):
         extended_attention_mask = extended_attention_mask.to(dtype=torch.float32) # fp16 compatibility
         # ************************modify to fix StopIteration************************
         
+        # 原本的mask中，1代表有用信息，0代表填充信息。下面的这句代码将其更改为：0代表有用信息，-10000代表填充信息。（为什么？从最后的softmax函数出发考虑）
         extended_attention_mask = (1.0 - extended_attention_mask) * -10000.0
 
         # Prepare head mask if needed
@@ -623,17 +682,36 @@ class BertModel(BertPreTrainedModel):
             elif head_mask.dim() == 2:
                 head_mask = head_mask.unsqueeze(1).unsqueeze(-1).unsqueeze(-1)  # We can specify head_mask for each layer
             head_mask = head_mask.to(dtype=next(self.parameters()).dtype) # switch to fload if need + fp16 compatibility
+        # 默认进入下面的else
         else:
             head_mask = [None] * self.config.num_hidden_layers
-
+        
+        # 经self.embeddings处理
+        # 得到维度torch.Size([batch_size, max_input_len_in_current_batch, hidden_size])的embedding向量
         embedding_output = self.embeddings(input_ids, position_ids=position_ids, token_type_ids=token_type_ids)
+        # 经self.encoder处理
+        # 得到维度torch.Size([batch_size, max_input_len_in_current_batch, hidden_size])的hidden_state，以outputs = (hidden_states,)的形式包进元组被输出
         encoder_outputs = self.encoder(embedding_output,
                                        extended_attention_mask,
                                        head_mask=head_mask)
+        # 将维度torch.Size([batch_size, max_input_len_in_current_batch, hidden_size])的hidden_state从元组里取出来，赋值给sequence_output
         sequence_output = encoder_outputs[0]
+        # if self.flag == 0:
+        #     logger.info("**********sequence_output: {} **********\n **********{}**********".format(sequence_output, np.shape(sequence_output)))
+        #     self.flag = 1
+        # "pool" the model by simply taking the hidden state corresponding to the first token
+        # 先取每句的第一个token，得到维度torch.Size([batch_size, hidden_size])，然后经过一层不改变维度的全连接层，然后经过tanh激活层
+        # 返回的pooled_output维度torch.Size([batch_size, hidden_size])
         pooled_output = self.pooler(sequence_output)
 
+        # sequence_output是当前batch所有句子所有token对应的BERT输出向量，维度为torch.Size([batch_size, max_input_len_in_current_batch, hidden_size])
+        # pooled_output是当前batch所有句子第一个token对应的BERT输出向量，维度为torch.Size([batch_size, hidden_size])
+        # encoder_outputs[1:]默认是空的
         outputs = (sequence_output, pooled_output,) + encoder_outputs[1:]  # add hidden_states and attentions if they are here
+        # if self.flag == 0:
+        #     logger.info("**********outputs[0]: {} **********\n **********{}**********".format(outputs[0], np.shape(outputs[0])))
+        #     logger.info("**********outputs[1]: {} **********\n **********{}**********".format(outputs[1], np.shape(outputs[1])))
+        #     self.flag = 1
         return outputs  # sequence_output, pooled_output, (hidden_states), (attentions)
 
 

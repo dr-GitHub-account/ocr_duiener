@@ -5,3 +5,7 @@ pytorch_version/prev_trained_model/
 pytorch_version/outputs/
 cached_crf-train_chinese-roberta-wwm-ext_128_duiener
 cached_crf-dev_chinese-roberta-wwm-ext_512_duiener
+cached_crf-train_chinese-pert-base_128_duiener
+cached_crf-dev_chinese-pert-base_512_duiener
+cached_crf-train_chinese-roberta-wwm-ext-large_128_duiener
+cached_crf-dev_chinese-roberta-wwm-ext-large_512_duiener
